@@ -86,7 +86,7 @@ async function processBackup() {
     }
 
     try {
-      console.log("dump command");
+      console.log(dumpCommand);
       // 1. Execute the dump command
       await exec(dumpCommand);
 
@@ -98,7 +98,10 @@ async function processBackup() {
       // 3. Read the compressed file
       const data = fs.readFileSync(filepath);
 
-      console.log("upload to s3");
+      console.log("");
+      console.log(config.aws.s3_bucket);
+      console.log(filename);
+      console.log(data);
       // 4. Upload to S3
       const params = {
         Bucket: config.aws.s3_bucket,
@@ -107,6 +110,7 @@ async function processBackup() {
       };
 
       const putCommand = new s3.PutObjectCommand(params);
+      console.log("a");
       await s3Client.send(putCommand);
       
       console.log(`✓ Successfully uploaded db backup for database ${dbType} ${dbName} ${dbHostname}.`);
