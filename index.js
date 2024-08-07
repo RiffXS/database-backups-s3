@@ -107,7 +107,7 @@ async function processBackup() {
       
       console.log(`✓ Successfully uploaded db backup for database ${dbType} ${dbName} ${dbHostname}.`);
     } catch (error) {
-      console.error(`An error occurred while processing the database ${dbType} ${dbName}, host: ${dbHostname}): ${error}`);
+      console.error(`An error occurred while processing the database ${dbType} ${dbName}, host: ${dbHostname}: ${error}`);
     }
   }
 }
