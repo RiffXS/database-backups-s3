@@ -1,9 +1,12 @@
-require('dotenv').config();
-const util = require('util');
-const exec = util.promisify(require('child_process').exec);
-const s3 = require("@aws-sdk/client-s3");
-const fs = require('fs');
-const cron = require("cron");
+import './index.mjs'
+
+import { CronJob } from 'cron'
+import { promisify } from 'util'
+import { exec as cp_exec } from 'child_process'
+import { readFileSync } from 'fs'
+import { PutObjectCommand, S3Client } from '@aws-sdk/client-s3'
+
+const exec = promisify(cp_exec)
 
 function loadConfig() {
   const requiredEnvars = [
@@ -11,12 +14,12 @@ function loadConfig() {
     'AWS_SECRET_ACCESS_KEY',
     'AWS_S3_REGION',
     'AWS_S3_ENDPOINT',
-    'AWS_S3_BUCKET'
-  ];
-  
+    'AWS_S3_BUCKET',
+  ]
+
   for (const key of requiredEnvars) {
     if (!process.env[key]) {
-      throw new Error(`Environment variable ${key} is required`);
+      throw new Error(`Variável de Ambiente ${key} é obrigatória`)
     }
   }
 
@@ -28,36 +31,36 @@ function loadConfig() {
       },
       region: process.env.AWS_S3_REGION,
       endpoint: process.env.AWS_S3_ENDPOINT,
-      s3_bucket: process.env.AWS_S3_BUCKET
+      s3_bucket: process.env.AWS_S3_BUCKET,
     },
     databases: process.env.DATABASES ? process.env.DATABASES.split(",") : [],
     run_on_startup: process.env.RUN_ON_STARTUP === 'true' ? true : false,
     cron: process.env.CRON,
-  };
+  }
 }
 
-const config = loadConfig();
+const config = loadConfig()
 
-const s3Client = new s3.S3Client(config.aws);
+const s3Client = new S3Client(config.aws)
 
 async function processBackup() {
   if (config.databases.length === 0) {
-    console.log("No databases defined.");
-    return;
+    console.log('Nenhuma database definida.')
+    return
   }
 
   for (const [index, databaseURI] of config.databases.entries()) {
-    const databaseIteration = index + 1;
-    const totalDatabases = config.databases.length;
+    const databaseIteration = index + 1
+    const databaseTotal = config.databases.length
 
-    const url = new URL(databaseURI);
+    const url = new URL(databaseURI)
     const dbType = url.protocol.slice(0, -1); // remove trailing colon
     const dbName = url.pathname.substring(1); // extract db name from URL
     const dbHostname = url.hostname;
     const dbUser = url.username;
     const dbPassword = url.password;
     const dbPort = url.port;
-  
+
     const date = new Date();
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
@@ -69,61 +72,62 @@ async function processBackup() {
     const filename = `backup-${dbType}-${timestamp}-${dbName}-${dbHostname}.tar.gz`;
     const filepath = `/tmp/${filename}`;
 
-    console.log(`\n[${databaseIteration}/${totalDatabases}] ${dbType}/${dbName} Backup in progress...`);
+    console.log(`\n[${databaseIteration}/${databaseTotal}] ${dbType}/${dbName} Backup in progress...`);
 
     let dumpCommand;
     switch (dbType) {
       case 'postgresql':
         dumpCommand = `pg_dump "${databaseURI}" -F c > "${filepath}.dump"`;
         break;
+
       case 'mongodb':
         dumpCommand = `mongodump --uri="${databaseURI}" --archive="${filepath}.dump"`;
         break;
+
       case 'mysql':
         dumpCommand = `mysqldump -u ${dbUser} -p${dbPassword} -h ${dbHostname} -P ${dbPort} ${dbName} > "${filepath}.dump"`;
         break;
+
       default:
-        console.log(`Unknown database type: ${dbType}`);
+        console.log(`Tipo de database desconhecido: ${dbType}`);
         return;
     }
 
     try {
-      // 1. Execute the dump command
-      await exec(dumpCommand);
+      // 1. Executar o comando de Dump
+      await exec(dumpCommand)
 
-      // 2. Compress the dump file
-      await exec(`tar -czvf ${filepath} ${filepath}.dump`);
+      // 2. Comprimir o arquivo Dump
+      await exec(`tar -czvf ${filepath} ${filepath}.dump`)
 
-      // 3. Read the compressed file
-      const data = fs.readFileSync(filepath);
-
-      // 4. Upload to S3
+      // 3. Ler o arquivo compresso
+      const data = readFileSync(filepath)
+    
+      // 4. Upload para o S3
       const params = {
         Bucket: config.aws.s3_bucket,
         Key: filename,
-        Body: data
-      };
+        Body: data,
+      }
 
-      const putCommand = new s3.PutObjectCommand(params);
-      console.log(putCommand);
-      await s3Client.send(putCommand);
-      
-      console.log(`✓ Successfully uploaded db backup for database ${dbType} ${dbName} ${dbHostname}.`);
+      const putCommand = new PutObjectCommand(params)
+      await s3Client.send(putCommand)
+
+      console.log(`✓ A database ${dbType} ${dbName} ${dbHostname} teve seu backup concluído com sucesso.`);
     } catch (error) {
-      console.error(`An error occurred while processing the database ${dbType} ${dbName}, host: ${dbHostname}: ${error}`);
+      console.error(`Um erro ocorreu durante o processamento da database ${dbType} ${dbName}, host: ${dbHostname}: ${error}`);
     }
   }
 }
 
 if (config.cron) {
-  const CronJob = cron.CronJob;
-  const job = new CronJob(config.cron, processBackup);
-  job.start();
-  
-  console.log(`Backups configured on Cron job schedule: ${config.cron}`);
+  const job = new CronJob(config.cron, processBackup)
+  job.start()
+
+  console.log(`Backup configurado para o agendamento Cron: ${config.cron}`)
 }
 
 if (config.run_on_startup) {
-  console.log("run_on_startup enabled, backing up now...")
-  processBackup();
+  console.log('run_on_startup habilitado, começando backup agora...')
+  processBackup()
 }
